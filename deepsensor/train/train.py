@@ -10,7 +10,7 @@ from typing import List
 
 
 # added ability to set default GPU device
-def set_gpu_default_device(dev: str="cuda:0") -> None:
+def set_gpu_default_device(backend: str="cuda", dev_id: int=0) -> None:
     """Set default GPU device for the backend.
 
     Raises:
@@ -24,6 +24,9 @@ def set_gpu_default_device(dev: str="cuda:0") -> None:
     Returns:
         None.
     """
+
+    dev = f"{backend}:{dev_id}"
+
     if deepsensor.backend.str == "torch":
         # Run on GPU if available
         import torch
@@ -33,7 +36,7 @@ def set_gpu_default_device(dev: str="cuda:0") -> None:
             torch.set_default_device(dev)
             B.set_global_device(dev)
 
-            assert torch.cuda.current_device() == torch.device(dev).index
+            assert torch.cuda.current_device() == dev_id
 
         else:
             raise RuntimeError("No GPU available: torch.cuda.is_available() == False")
