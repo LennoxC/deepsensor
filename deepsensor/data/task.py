@@ -514,6 +514,7 @@ def concat_tasks(tasks: List[Task], multiple: int = 1) -> Task:
     # Convert list of tuples of (x_c, y_c) to list of x_c and list of y_c
     merged_task["X_c"] = [c[0] for c in merged_context]
     merged_task["Y_c"] = [c[1] for c in merged_context]
+    merged_task["Y_t_aux"] = B.concat(*[t["Y_t_aux"] for t in tasks]) # concatenate aux targets for all targets
 
     # This assumes that all tasks have the same number of targets
     for i in range(n_target_sets):
