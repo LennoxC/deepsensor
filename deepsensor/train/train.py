@@ -33,7 +33,7 @@ def set_gpu_default_device(backend: str="cuda", dev_id: int=0) -> None:
 
         if torch.cuda.is_available():
             # Set default GPU device
-            torch.set_default_device(dev)
+            torch.cuda.set_device(dev_id)
             B.set_global_device(dev)
 
             assert torch.cuda.current_device() == dev_id
