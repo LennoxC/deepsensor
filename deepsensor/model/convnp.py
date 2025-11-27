@@ -238,6 +238,7 @@ class ConvNP(DeepSensorModel):
                 print(f"decoder_scale inferred from TaskLoader: {decoder_scale}")
             kwargs["decoder_scale"] = decoder_scale
 
+        self.internal_density = internal_density
         self.model, self.config = construct_neural_process(*args, **kwargs)
         self._set_num_mixture_components()
 
