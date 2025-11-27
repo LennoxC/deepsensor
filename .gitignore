@@ -12,3 +12,5 @@ _build
 *.png
 deepsensor.egg-info/
 .venv/
+venv/
+local_tests/
