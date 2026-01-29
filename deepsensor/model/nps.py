@@ -152,6 +152,7 @@ def construct_neural_process(
     decoder_scale: float = 1 / 100,
     decoder_scale_learnable: bool = False,
     num_basis_functions: int = 64,
+    dropout: float = 0.0, # added dropout
     epsilon: float = 1e-2,
 ):
     """Construct a ``neuralprocesses`` ConvNP model.
@@ -283,6 +284,7 @@ def construct_neural_process(
         decoder_scale_learnable=decoder_scale_learnable,
         num_basis_functions=num_basis_functions,
         epsilon=epsilon,
+        dropout=dropout,  # pass dropout to ConvGNP
         dtype=dtype,
     )
 

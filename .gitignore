@@ -12,3 +12,6 @@ _build
 *.png
 deepsensor.egg-info/
 .venv/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
