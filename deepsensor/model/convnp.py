@@ -888,6 +888,101 @@ class ConvNP(DeepSensorModel):
         """
         dist = self(task)
         return self.logpdf(dist, task)
+    
+    def remove_edge_targets(
+            self,
+            X_t,
+            Y_t,
+            Y_t_aux,
+            margin,
+        ):
+
+        # Expect X_t and Y_t to be lists with a single element shaped (T, 2, N) and (T, C, N)
+        X_t_block = X_t[0]
+        Y_t_block = Y_t[0]
+        Y_t_aux_block = Y_t_aux if Y_t_aux is not None else None
+
+        X_t_per_t = []
+        Y_t_per_t = []
+        Y_t_aux_per_t = [] if Y_t_aux_block is not None else None
+
+        for t in range(X_t_block.shape[0]):
+            # X_t_block[t] is (2, N)
+            x1, x2 = X_t_block[t]
+            y = Y_t_block[t]
+
+            x1v = x1.squeeze()
+            x2v = x2.squeeze()
+
+            if y.ndim == 3:
+                # grid case: y is (C, Ny, Nx), x1v and x2v are 1D
+                valid_i = np.where((x1v >= margin) & (x1v <= 1.0 - margin))[0]
+                valid_j = np.where((x2v >= margin) & (x2v <= 1.0 - margin))[0]
+
+                if valid_i.size == 0 or valid_j.size == 0:
+                    X_t_per_t.append(np.zeros((2, 0), dtype=x1.dtype))
+                    Y_t_per_t.append(np.zeros((y.shape[0], 0), dtype=y.dtype))
+                    if Y_t_aux_block is not None:
+                        Y_t_aux_per_t.append(np.zeros((Y_t_aux_block.shape[1], 0), dtype=Y_t_aux_block.dtype))
+                    continue
+
+                ii, jj = np.meshgrid(valid_i, valid_j, indexing="ij")
+                ii = ii.ravel()
+                jj = jj.ravel()
+
+                X_t_per_t.append(
+                    np.vstack([
+                        x1[ii],
+                        x2[jj],
+                    ]).astype(x1.dtype)
+                )
+
+                Y_t_per_t.append(y[:, ii, jj])
+                if Y_t_aux_block is not None:
+                    Y_t_aux_per_t.append(Y_t_aux_block[t][:, ii, jj])
+            else:
+                # point case: y is (C, N)
+                valid = (x1v >= margin) & (x1v <= 1.0 - margin) & (x2v >= margin) & (x2v <= 1.0 - margin)
+
+                X_t_per_t.append(
+                    np.vstack([
+                        x1v[valid],
+                        x2v[valid],
+                    ]).astype(x1.dtype)
+                )
+
+                Y_t_per_t.append(y[:, valid])
+                if Y_t_aux_block is not None:
+                    Y_t_aux_per_t.append(Y_t_aux_block[t][:, valid])
+
+        # Ensure consistent N across time by trimming to the smallest count
+        n_per_t = [arr.shape[1] for arr in X_t_per_t]
+        min_n = min(n_per_t) if n_per_t else 0
+        if min_n == 0:
+            X_t_new = [np.zeros((X_t_block.shape[0], 2, 0), dtype=X_t_block.dtype)]
+            Y_t_new = [np.zeros((Y_t_block.shape[0], Y_t_block.shape[1], 0), dtype=Y_t_block.dtype)]
+            Y_t_aux_new = (
+                np.zeros((Y_t_aux_block.shape[0], Y_t_block.shape[0], 0), dtype=Y_t_aux_block.dtype)
+                if Y_t_aux_block is not None
+                else None
+            )
+            return X_t_new, Y_t_new, Y_t_aux_new
+
+        X_t_per_t = [arr[:, :min_n] for arr in X_t_per_t]
+        Y_t_per_t = [arr[:, :min_n] for arr in Y_t_per_t]
+        if Y_t_aux_per_t is not None:
+            Y_t_aux_per_t = [arr[:, :min_n] for arr in Y_t_aux_per_t]
+
+        # Stack along time to keep the expected (T, 2, N) / (T, C, N) structure
+        X_t_new = [np.stack(X_t_per_t, axis=0)]
+        Y_t_new = [np.stack(Y_t_per_t, axis=0)]
+        if Y_t_aux_per_t is not None:
+            Y_t_aux_new = np.stack(Y_t_aux_per_t, axis=0)
+        else:
+            Y_t_aux_new = None
+
+        return X_t_new, Y_t_new, Y_t_aux_new
+
 
     def loss_fn(
         self,
@@ -895,6 +990,7 @@ class ConvNP(DeepSensorModel):
         fix_noise=None,
         num_lv_samples: int = 8,
         normalise: bool = False,
+        edge_margin: Optional[float] = 0.0,
     ):
         """Compute the loss of a task.
 
@@ -914,6 +1010,29 @@ class ConvNP(DeepSensorModel):
         Returns:
             float: The loss.
         """
+        task = copy.deepcopy(task)
+        
+        if edge_margin is not None and edge_margin > 0.0:
+            
+            xt = task['X_t']
+            yt = task['Y_t']
+
+            if task.keys().__contains__('Y_t_aux') is False:
+                yt_aux = None
+            else:
+                yt_aux =  task['Y_t_aux']
+
+            X_t_new, Y_t_new, Y_t_aux_new = self.remove_edge_targets(xt, yt, yt_aux, edge_margin)
+
+            if all(x.shape[1] == 0 for x in X_t_new):
+                return B.zeros(())
+
+            task['X_t'] = X_t_new
+            task['Y_t'] = Y_t_new
+            
+            if yt_aux is not None:
+                task['Y_t_aux'] = Y_t_aux_new
+
         task = ConvNP.modify_task(task)
 
         context_data, xt, yt, model_kwargs = convert_task_to_nps_args(task)
