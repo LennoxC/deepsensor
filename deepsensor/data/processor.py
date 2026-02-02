@@ -126,8 +126,7 @@ class DataProcessor:
             )
         if np.diff(x1_map) != np.diff(x2_map):
             warnings.warn(
-                f"x1_map={x1_map} and x2_map={x2_map} have different ranges ({float(np.diff(x1_map))} "
-                f"and {float(np.diff(x2_map))}, respectively). "
+                f"x1_map and x2_map have different ranges."
                 "This can lead to stretching/squashing of data, which may "
                 "impact model performance.",
                 UserWarning,
