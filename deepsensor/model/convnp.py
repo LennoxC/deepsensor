@@ -889,6 +889,7 @@ class ConvNP(DeepSensorModel):
         dist = self(task)
         return self.logpdf(dist, task)
     
+    """
     def remove_edge_targets(
             self,
             X_t,
@@ -896,6 +897,17 @@ class ConvNP(DeepSensorModel):
             Y_t_aux,
             margin,
         ):
+
+        # if a gridded task is passed: 
+        #   X_t will have shape X_t: [((2, 1, 1111), (2, 1, 1111))] rather than X_t: [(2, 2, 1111)].
+        #   Y_t will have shape Y_t: [(2, 1, 1111, 1111)] rather than Y_t: [(2, 1, 1000)].
+        #                              ^ batch dim                           ^ batch dim
+        #   Y_t_aux will have shape Y_t_aux: (2, 2, 1111, 1111) rather than Y_t_aux: (2, 2, 1000).
+        # these need to be processed differently
+
+        # first: handling gridded data:
+        
+
 
         # Expect X_t and Y_t to be lists with a single element shaped (T, 2, N) and (T, C, N)
         X_t_block = X_t[0]
@@ -982,7 +994,104 @@ class ConvNP(DeepSensorModel):
             Y_t_aux_new = None
 
         return X_t_new, Y_t_new, Y_t_aux_new
+    """
+    
+    def remove_edge_targets(self, 
+                            X_t, 
+                            Y_t, 
+                            Y_t_aux, 
+                            margin):
 
+        X_t_block = X_t[0]
+        Y_t_block = Y_t[0]
+        Y_t_aux_block = Y_t_aux  # may be None
+
+        is_gridded = isinstance(X_t_block, tuple)
+
+        if is_gridded:
+            # ---- gridded ----
+            x1 = X_t_block[0]  # (T, 1, Ny)
+            x2 = X_t_block[1]  # (T, 1, Nx)
+
+            x1_1d = x1[0, 0]   # (Ny,)
+            x2_1d = x2[0, 0]   # (Nx,)
+
+            valid_i = np.where((x1_1d >= margin) & (x1_1d <= 1.0 - margin))[0]
+            valid_j = np.where((x2_1d >= margin) & (x2_1d <= 1.0 - margin))[0]
+
+            if valid_i.size == 0 or valid_j.size == 0:
+                X_t_new = [(
+                    np.zeros((x1.shape[0], 1, 0), dtype=x1.dtype),
+                    np.zeros((x2.shape[0], 1, 0), dtype=x2.dtype),
+                )]
+                Y_t_new = [np.zeros((Y_t_block.shape[0], Y_t_block.shape[1], 0, 0), dtype=Y_t_block.dtype)]
+                Y_t_aux_new = (
+                    np.zeros((Y_t_aux_block.shape[0], Y_t_aux_block.shape[1], 0, 0), dtype=Y_t_aux_block.dtype)
+                    if Y_t_aux_block is not None
+                    else None
+                )
+                return X_t_new, Y_t_new, Y_t_aux_new
+
+            X_t_new = [(
+                x1[:, :, valid_i],
+                x2[:, :, valid_j],
+            )]
+
+            Y_t_new = [Y_t_block[:, :, valid_i][:, :, :, valid_j]]
+
+            Y_t_aux_new = (
+                Y_t_aux_block[:, :, valid_i][:, :, :, valid_j]
+                if Y_t_aux_block is not None
+                else None
+            )
+
+            return X_t_new, Y_t_new, Y_t_aux_new
+
+        else:
+            # ---- subsampled ----
+            x1 = X_t_block[:, 0]   # (T, N)
+            x2 = X_t_block[:, 1]   # (T, N)
+            y = Y_t_block         # (T, C, N)
+            y_aux = Y_t_aux_block
+
+            valid = (
+                (x1 >= margin) & (x1 <= 1.0 - margin) &
+                (x2 >= margin) & (x2 <= 1.0 - margin)
+            )
+
+            # Equalise N across time - in the subsampled case, different time steps in a batch may have different numbers of valid targets after removing edge points, which 
+            # causes issues for batching through the model. To equalise N across time steps, we find the minimum number of valid targets across time steps and trim all time 
+            # steps to this number.
+            n_per_t = valid.sum(axis=1)
+            min_n = int(n_per_t.min())
+
+            if min_n == 0:
+                X_t_new = [np.zeros((x1.shape[0], 2, 0), dtype=x1.dtype)]
+                Y_t_new = [np.zeros((y.shape[0], y.shape[1], 0), dtype=y.dtype)]
+                Y_t_aux_new = (
+                    np.zeros((y_aux.shape[0], y_aux.shape[1], 0), dtype=y_aux.dtype)
+                    if y_aux is not None
+                    else None
+                )
+                return X_t_new, Y_t_new, Y_t_aux_new
+
+            X_out = []
+            Y_out = []
+            Y_aux_out = [] if y_aux is not None else None
+
+            for t in range(x1.shape[0]):
+                idx = np.where(valid[t])[0][:min_n]
+                X_out.append(np.stack([x1[t, idx], x2[t, idx]], axis=0))
+                Y_out.append(np.take(y[t], idx, axis=-1))
+                if y_aux is not None:
+                    Y_aux_out.append(np.take(y_aux[t], idx, axis=-1))
+
+            X_t_new = [np.stack(X_out, axis=0)]
+            Y_t_new = [np.stack(Y_out, axis=0)]
+            Y_t_aux_new = np.stack(Y_aux_out, axis=0) if y_aux is not None else None
+
+            return X_t_new, Y_t_new, Y_t_aux_new
+    
 
     def loss_fn(
         self,
