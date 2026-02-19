@@ -1133,8 +1133,9 @@ class ConvNP(DeepSensorModel):
 
             X_t_new, Y_t_new, Y_t_aux_new = self.remove_edge_targets(xt, yt, yt_aux, edge_margin)
 
-            if all(x.shape[1] == 0 for x in X_t_new):
-                return B.zeros(())
+            if not all(isinstance(x, tuple) for x in X_t_new):
+                if all(x.shape[1] == 0 for x in X_t_new):
+                    return B.zeros(())
 
             task['X_t'] = X_t_new
             task['Y_t'] = Y_t_new
